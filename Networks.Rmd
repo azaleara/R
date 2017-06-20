@@ -1,0 +1,156 @@
+---
+title: "Networks"
+author: "Azalea"
+date: "6/19/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Neuralnet (Fritsch & Günther, 2008")
+
+Las redes neuronales son usadas con múltiple fines, en este caso se usa como una extensión de los modelos lineales generalizados. Neuralnet entrena perceptrones multi-capa en el contexto del análisis de regresión, i.e. relación entre covariables y variables.
+covariables = inputs
+variables = output 
+
+El algoritmo feedforwad = aproximar una relacion funcional de la situacion anterior.
+El algoritmo backpropagation = en el sentido opuesto.
+
+Neuralnet tiene los dos algoritmos para el entrenamiento.
+
+## Neuralnet trabaja como MLP, multi-layer perceptrons, *flexible
+
+- neuronas organizadas en capas (layers)
+- sinapsis, conexiones entre capas (weight)
+- input layer = todos los inputs o neuronanas (covariables) (número de neuronas input)
+- output layer = variable (numero de neuronas output)
+
+#Aprendizaje supervisado
+Los parametros que utiliza este algoritmo para esto son los weights.
+- calcula el output o(x), dado el input (x) y los pesos (w). Se calcula la diferencia entre el o(predicho) y el o(observado = y)
+- se calcula el error = suma de los cuadrados 
+- todos los weights son adaptados de acuerdo a la regla de algoritmo, esto se para cuando el error es más pequeño que un umbral predeterminado.  
+
+#El algoritmo backpropagation 
+modifica los weights hasta encontrar una minima local de la función de error (dE/dw). Y los weights son modificados en el sentido opuesto de las derivaciones parciales de la local mínima alcanzada.  
+
+## neuralnet
+Depende de dos paqueterías: grid y MASS
+
+```{r}
+library(neuralnet)
+```
+
+Vamos a usar la base de datos "infert" = dataset de infertilidad despues de un aborto (espontáneo o inducido).
+
+Argimentos de neuralnet
+- hidden = vector c(3,2,1), i.e. tres capas hidden, la 1ra con tres neuronas, la 2da, con dos, y la 3ra. con una.
+- threshold = 0.01 (default)
+rep = 1 (default), numero de repeticiones de entrenamientos
+- startweights = vector con los valores iniciales de los weights, aleatorio (default)
+- algoritmo = rprop+ (default) = resilente backpropagation. 
+- err.fct = error, sse (default)
+- linear.output = TRUE (default) para regresor, o FALSE para clasificador 
+- likehood = TRUE si la función de error es igual a la función log-likelihood negativa. FALSE (default)
+- exclude = vector o matriz de los pesos que deben ser excluidos.
+- constant.weights = vector de los calores de los pesos que son excluidos del entrenamiento y usados para completar. NULL (default)
+
+
+# Del dataset "infert"
+Predecir si se trata de caso o control una observación, de acuerdo a age, parity (numero de nacimientos), induced, spontaneous. Dado que es caso o control (binaria), deberiamos usar una función logística (default) y como error la cross-entropy (err.fct="ce"). linear.output = FALSE para que la activacion se mapeé de 1 - 0. Con dos hidden neuronas. 
+
+```{r}
+fertilidad <- neuralnet(case ~ age + parity + induced + spontaneous, 
+                        data = infert, hidden = 2, err.fct = "ce", #(3,2)
+                        linear.output = FALSE)
+fertilidad
+```
+
+#Resultados importantes:
+$net.result = lista de los resultados generales para cada replica.
+$weights = lista de los weights (ajustados-fitted) para cada replica.
+$generalized.weights = lista de los weights generalizados para cada replica.
+$result.matrix = matriz con el error, el umbral alcanzado, pasos necesarios, para cada re;lica.
+
+# Para ver la respuesta, i.e. el output
+```{r}
+fertilidad$response
+```
+
+# Para ver la respuesta cuando 0(x); lista de un elemento relacioanado a una replicación. 
+```{r}
+fertilidad$net.result
+```
+
+o bien, 
+```{r}
+output <- cbind(fertilidad$covariate, fertilidad$net.result[[1]])
+
+dimnames(output) <- list(NULL, c("age","parity","induced", "spontaneous","fertilidad-output"))
+
+head(output)
+```
+
+#graficar la red entrenada para ver la topología de la red.
+Puede usar los argumentos dimension y radious para modificar los tamaños de los elementos de la red.  
+```{r}
+plot(fertilidad)
+```
+
+azul = bias para cada capa, i.e. intercepto del modelo lineal.
+
+#graficar los weights generales 
+```{r}
+par(mfrow=c(2,2))
+gwplot(fertilidad,selected.covariate="age", min=-2.5, max=5)
+gwplot(fertilidad,selected.covariate="parity", min=-2.5, max=5)
+gwplot(fertilidad,selected.covariate="induced", min=-2.5, max=5)
+gwplot(fertilidad,selected.covariate="spontaneous", min=-2.5, max=5)
+```
+
+Age no tiene efecto sobre los pesos, induced and spontaneous tienen efecto-relacion no lineal.
+
+
+### Predicción
+comando "compute" permite calcular predicciones para combinaciones de covariables nuevas, calcula y resume el output de cada neurona. Predice para nuevas combinaciones de covariables (inputs). 
+
+Por ejemplo, para predecir el output con age = 22, parity = 1, induced <= 1, y spontaneous <= 1.
+```{r}
+new.output <- compute(fertilidad, covariate=matrix(c(22,1,0,0,
+                                                     22,1,1,0,
+                                                     22,1,0,1,
+                                                     22,1,1,1),
+                                                   byrow=TRUE, ncol=4))
+
+new.output$net.result
+```
+La probabilidad de llegar a 1, i.e. a ser caso de infertilidad, aumenta con el numero de abortos. 
+
+## Función "confidence.interval"
+Como la edad no tuvo efectos sobre el resultado, se puede exluir dado que es irrelevante y hacer otra red. *pero yo no la voy a hacer en ese paso 
+
+```{r}
+ci <- confidence.interval(fertilidad, alpha=0.05)
+ci$liser.ci
+ci$upper.ci
+```
+
+
+
+
+### Ahora les toca hacer los pasos anteriores con el algoritmo "backprop", i.e. backpropagation 
+```{r}
+fertilidad.bp <- neuralnet(case~age+parity+induced+spontaneous,
+                           data=infert, hidden=2, err.fct="ce",
+                           linear.output=FALSE,
+                           algorithm="backprop",
+                           learningrate=0.01)
+fertilidad.bp
+```
+
+
+
+
+
