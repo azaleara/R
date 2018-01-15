@@ -1,0 +1,208 @@
+---
+title: "DataTable"
+output: html_notebook
+---
+
+## Librería
+
+Se necesita cargar la librería
+
+```{r}
+library(data.table)
+```
+
+## Creamos un data.frame
+
+```{r}
+letras <- sample(letters, 50, replace = T)
+valor1 <- round(rnorm(50, 30,2), 2)
+valor2 <- round(rbeta(50, 2.3, 3.1),2)
+valor3 <- round(rlogis(50, 0.5, 0.8), 2)
+mi.DF <- data.frame(letras, valor1, valor2, valor3)
+str(mi.DF)
+```
+
+## Creamos un data.table
+
+
+```{r}
+mi.DT <- data.table(letras, valor1, valor2, valor3)
+str(mi.DT)
+```
+
+## Transformamos el data.table
+
+### as.data.table
+
+Esta instrucción convierte a **data.table** pero manteniendo el objeto original
+
+```{r}
+mi.DFesDT <- as.data.table(mi.DF)
+mi.DFesDT
+```
+
+### setDT
+
+Esta función permite convertirlo pero sin copiar en memoria, lo hace por referencia. En el caso de que sean data.tables muy grandes es mejor usar este método.
+
+```{r}
+setDT(mi.DF)
+str(mi.DF)
+```
+
+## Leer archivos
+
+Obtener los datos de un archivo conlleva varias metodologías, que depende en un principio del tipo de archivo.
+En este ejemplo partimos de un **CSV** ya que otros metodos requerírian pasos extra.
+
+Teniendo el archivo `/tmp/ScriptsClase/miDataframe.csv` podemos leerlo de la manera clasica:
+
+```{r}
+otroDF <- read.csv("miDataframe.csv")
+str(otroDF)
+```
+
+Podemos ver que se lee y genera un **data.frame**, por lo que tendríamos que transformarlo en *data.table* sin embargo este paquete presenta la función *fread()* que permite la lectura directo a un data table.
+
+```{r}
+otroDT <- fread("miDataframe.csv")
+str(otroDT)
+```
+
+Este segundo parametro es mucho mas rápido que el primero :
+
+```{r}
+library(microbenchmark)
+library(ggplot2)
+
+comparacion <- microbenchmark(read.csv=read.csv("miDataframe.csv"),fread=fread("miDataframe.csv"))
+autoplot(comparacion)
+
+```
+
+Un valor menor es mejor, o sea menos tiempo.
+
+## Interacción con datos
+
+
+Por ejemplo como podríamos sumar los valores de las letras a con un **data.frame**
+
+```{r}
+colSums(otroDF[otroDF$letras =="a",c("valor1", "valor2", "valor3")])
+```
+
+Haciendo en un paso el filtrado de los renglones que son iguales a la letra **"a"** seguido del calculo de la sumatoria. Este mismo formato funciona para medias con `colMeans`. 
+Pero si quisieramos calcular la desviación estándar, no existe la funcion `colSD`, por lo que para otras funciones se usaría la familia lapply. Una familia de funciones muy poderosa pero complicada de implementar.
+
+```{r}
+apply(otroDF[otroDF$letras =="a",c("valor1", "valor2", "valor3")],2, sd)
+```
+
+Como se hace en *data.table*:
+
+```{r}
+otroDT[letras == "a", .(mean(valor1), mean(valor2), mean(valor3))]
+```
+
+Si el número de columnas es muy grande se pueden exlcuir columnas que, como la de letras, no se puede aplicar la función en ves de escribirlas:
+
+```{r}
+otroDT[letras == "a", colSums(.SD), .SDcols= - "letras"]
+```
+
+Como se aplica para el caso de funciones como `sd()`
+
+```{r}
+otroDT[letras == "a", lapply(.SD, sd), .SDcols= - "letras"]
+```
+
+
+Pero esto no queda ahí, si quisieramos hacer lo mismo por cada letra, con **data.frame** se haría por separado, o con `subset()` agregando otro nivel de complejidad.
+Mientras que con `data.table`
+
+```{r}
+otroDT[, lapply(.SD, sd), by = letras]
+```
+
+```{r}
+otroDT[, lapply(.SD, mean), by = letras]
+```
+
+
+## Estructura de la instrucción.
+
+La instrucción es en cierta forma similar a **data.frame**. Entre los corchetes se colocan *comas* que definen los argumentos. O sea, el primer valor antes de la primera coma de izquierda a derecha refiere a los renglones. El segundo valor despues de este corresponde a las columnas, despues de la tercera coma pueden ir otros argumentos.
+El argumento `by=` se refiere a que la función a nivel de **columnas** se aplicara en función de la variable o variables que se señalan en `by=`.
+El argumento `.SDcols =` refiere a las columnas que se selecciónan o exluyen del objeto interno `.SD`. La exclusión en este caso se hace con el simblo `-` previo al vector de nombres de columnas.
+Existen mas argumentos que podremos explorar mas adelante.
+
+Aquí surgen cuatro acotaciones interesantes:
+- Primero la llamada de columnas, a diferencia de un **data.frame** se llaman sin comillas, son **objetos**.
+- Segundo, los renglones se pueden extraer por numeración, por un vector de valores booleanos (FALSE, TRUE) o se pueden filtrar.
+- Tercero, internamente **data.table** tiene objetos internos que refieren de gran utilidad, por ejemplo `.SD` es un objeto interno que refiere al **data.table** internamente, el objeto `.N` indica el número de renglones tanto total como por condición `by=` o filtrado de renglones. En el caso de `.I` devuelve el número de renglon
+- Cuarto la notación `.()` es equivalente a la función `list()` pero solo internamente al **data.table**
+
+### Llamado de columans por nombre
+
+```{r}
+otroDT[, letras]
+```
+
+Así se extrae el vector, pero para extraer varias columnas o extraer una en formato de **data.table**
+
+```{r}
+otroDT[, .(letras)]
+```
+
+```{r}
+otroDT[, .(letras,valor3)]
+```
+
+## Renglones
+
+Para renglones se puede extraer por número
+```{r}
+otroDT[10,]
+```
+
+Para filtrar:
+
+```{r}
+otroDT[valor2 > 0.33, ]
+```
+
+Usando vectores booleanos:
+
+```{r}
+otroDT[c(TRUE,FALSE),]
+```
+
+## Objetos internos 
+
+Uso de `.SD`:
+
+```{r}
+otroDT[, lapply(.SD, var), .SDcols = c("valor1", "valor2")]
+```
+
+Usod de `.N` para número de renglones:
+
+```{r}
+otroDT[,.N]
+```
+
+```{r}
+otroDT[,.N, by = letras]
+```
+
+Uso de objeto `.I`:
+
+```{r}
+otroDT[,.I[letras == "a"]]
+```
+
+
+```{r}
+t.test(otroDT[c(17:35), letras], otroDT[c(36:40), letras])
+```
+
